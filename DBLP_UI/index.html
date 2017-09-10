@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<style>
+h2 {
+    text-align: center;
+}
+body{
+  background-repeat: no-repeat;
+  backface-visibility: inherit;
+  background-size: cover;
+}
+
+
+
+</style>
+
+<body background="dblp.jpeg"> 
+
+<h2> DBLP Recommender System</h2><br/><br/>
+<center>Please enter your name: <input type="text" id="authorName"/><br/><br/>
+<input type="button" value="Recommend conferences based on co-authors " onclick="getConferenceBasedOnCoAuthor()"/>
+<input type="button" value="Recommend conferences based on similar Conferences" onclick="getConferenceBasedOnSimilarity()" />
+<input type="button" value="Recommend conferences based on your publications" onclick="getConferenceBasedOnPublications()" />
+<br/><br/>
+<h3 id="head"></h3>
+<div id="conf">Your Recommendations will be listed here</div></center>
+
+<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript"></script>
+<script type="text/javascript">
+function getConferenceBasedOnCoAuthor() 
+{
+    var authorName = $("#authorName").val();
+    var data = '';
+    $('#conf').text("Getting your recommendations....");
+    $.ajax({
+          url : 'http://localhost:7070/recommend/conferenceByAuthorName?authorName='+authorName, 
+          type : 'GET',
+          success : function(response) {
+          for(var i=0;i<response.length;i++){
+            data += response[i]+"\n";
+          }
+          $('#head').text("Recommendations based on Co Authors");
+          console.log(data);
+          var obj = $('#conf').text(data);
+          obj.html(obj.html().replace(/\n/g,'<br/>'));
+        },
+        error : function(request, textStatus, errorThrown) {
+            alert("Author not found!");
+        }
+      });
+}
+
+function getConferenceBasedOnSimilarity() 
+{
+    var authorName = $("#authorName").val();
+    var data = '';
+    $('#conf').text("Getting your recommendations....");
+    $.ajax({
+          url : 'http://localhost:7070/recommend/conferenceByConferenceName?authorName='+authorName, 
+          type : 'GET',
+          success : function(response) {
+            for(var i=0;i<response.length;i++){
+              data += response[i]+"\n";
+            }
+            $('#head').text("Recommendations based on your Similar Conferences");
+            var obj = $('#conf').text(data); 
+            obj.html(obj.html().replace(/\n/g,'<br/>'));
+          },
+          error : function(request, textStatus, errorThrown) {
+              alert("Author not found!");
+          }
+      });
+}
+function getConferenceBasedOnPublications() 
+{
+    var authorName = $("#authorName").val();
+    var data = '';
+    $('#conf').text("Getting your recommendations....");
+    $.ajax({
+          url : 'http://localhost:7070/recommend/conferenceByPublication?authorName='+authorName, 
+          type : 'GET',
+          success : function(response) {
+            for(var i=0;i<response.length;i++){
+              data += response[i]+"\n";
+            }
+            $('#head').text("Recommendations based on your Publications");
+            var obj = $('#conf').text(data); 
+            obj.html(obj.html().replace(/\n/g,'<br/>'));
+          },
+          error : function(request, textStatus, errorThrown) {
+              alert("Author not found!");
+          }
+      });
+}
+</script>
+
+</body>
+</html>

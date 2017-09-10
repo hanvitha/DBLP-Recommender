@@ -1,0 +1,912 @@
+package database;
+
+import java.sql.*;
+
+public class DBLPConnection {	
+	public static Connection getConn(String db_url, String user_name, String pwd) {
+		try {
+			Class.forName("org.gjt.mm.mysql.Driver");
+			return DriverManager.getConnection(db_url, user_name, pwd);
+		} catch (Exception e) {
+			System.out.println("Error while opening a conneciton to database server: "+ e.getMessage());
+			return null;
+		}
+	}
+}
+
+
+package database;
+
+import parser.*;
+import java.sql.*;
+
+public class PrepStmts {
+	public static PreparedStatement statement_inproc, statement_conf, statement_author;
+	public static PreparedStatement statement_author_id, statement_conf_id, statement_paper_id;
+	public static Connection conn;
+
+	public PrepStmts(Connection c) {
+		conn = c;
+		try {
+			statement_inproc = conn
+					.prepareStatement("insert into paper(title,year,conference,paper_key) values (?,?,?,?)");
+
+			statement_author = conn.prepareStatement("insert into author(name,paper_key) values (?,?)");
+
+			statement_conf = conn.prepareStatement("insert into conference(conf_key,name,detail) values (?,?,?)");
+
+			statement_author_id = conn
+					.prepareStatement("insert into author_id(author_name_id, author_name) values (?,?)");
+
+			statement_conf_id = conn.prepareStatement("insert into conf_id(conf_name_id, conf_name) values (?,?)");
+
+			statement_paper_id = conn.prepareStatement("insert into paper_id(paper_key_id, paper_key) values (?,?)");
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+	}
+
+	public static void prepareStatementsForIDS() {
+		try {
+			for (int i = 0; i < XMLHandler.Papers.size(); i++) {
+				statement_paper_id.setInt(1, i);
+				statement_paper_id.setString(2, XMLHandler.Papers.get(i));
+				statement_paper_id.addBatch();
+			}
+			for (int i = 0; i < XMLHandler.Authors.size(); i++) {
+				statement_author_id.setInt(1, i);
+				statement_author_id.setString(2, XMLHandler.Authors.get(i));
+				statement_author_id.addBatch();
+			}
+			for (int i = 0; i < XMLHandler.Conferences.size(); i++) {
+				statement_conf_id.setInt(1, i);
+				statement_conf_id.setString(2, XMLHandler.Conferences.get(i));
+				statement_conf_id.addBatch();
+			}
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+	}
+
+	public void ExcecuteStatements() {
+		try {
+			statement_inproc.executeBatch();
+			statement_conf.executeBatch();
+			statement_author.executeBatch();
+
+			prepareStatementsForIDS();
+			statement_author_id.executeBatch();
+			statement_conf_id.executeBatch();
+			statement_paper_id.executeBatch();
+
+			conn.commit();
+			System.out.println("Exiting after saving data ");
+			conn.close();
+
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+	}
+
+	public static void ExecuteStatementsofLists() throws SQLException {
+		System.out.println("Saving unique Authors, Conferences and Paper with ids");
+		prepareStatementsForIDS();
+		statement_author_id.executeBatch();
+		statement_conf_id.executeBatch();
+		statement_paper_id.executeBatch();
+		conn.commit();
+	}
+
+	public static void SetInproceedings(XMLElements x) throws SQLException {
+		statement_inproc.setString(1, x.paper_title);
+		statement_inproc.setInt(2, x.year);
+		statement_inproc.setInt(3, x.conf_name);
+		statement_inproc.setInt(4, x.paper_key);
+		statement_inproc.addBatch();
+
+		for (int author1 : x.authors) {
+			statement_author.setInt(1, author1);
+			statement_author.setInt(2, x.paper_key);
+			statement_author.addBatch();
+		}
+	}
+
+	public static void SetProceedings(XMLElements xml) throws SQLException {
+		statement_conf.setString(1, xml.conf_key);
+		statement_conf.setInt(2, xml.conf_name);
+		statement_conf.setString(3, xml.conf_detail);
+		statement_conf.addBatch();
+	}
+}
+
+
+
+package parser;
+
+import recommender.*;
+
+import java.io.*;
+import javax.xml.parsers.*;
+import org.xml.sax.SAXException;
+
+
+
+
+public class Parser {
+
+	public void parseXML(XMLHandler handler) {		
+		SAXParserFactory saxpf = SAXParserFactory.newInstance();
+		SAXParser parser;
+		try {
+			parser = saxpf.newSAXParser();
+			parser.getXMLReader().setFeature("http://xml.org/sax/features/validation", true);
+			parser.parse(new File(Main.filePath), handler);
+			Main.stmts.ExcecuteStatements();
+			if(handler.errors >0)
+				System.out.println("No of Errors : " +handler.errors);
+			
+		} catch (ParserConfigurationException | SAXException | IOException e) {
+			e.printStackTrace();
+		}
+	}
+}
+
+
+package parser;
+
+import java.util.ArrayList;
+
+public class XMLElements {
+
+	public static final int OTHER = 0;
+	public static final int INPROCEEDING = 1;
+	public static final int PROCEEDING = 2;
+	public static final int CONFNAME = 3;
+	
+	public static final int AUTHOR = 4;
+	public static final int TITLE = 5;
+	public static final int CONFDETAIL = 5;
+	public static final int YEAR = 6;
+
+	public int paper_key;
+	public String paper_title;
+	public int year;
+	public int paper_conf;
+	public int conf_name;
+	public String conf_detail;
+	public String conf_key;
+	public ArrayList<Integer> authors;
+	
+	public XMLElements() {
+		authors = new ArrayList<Integer>();
+		paper_title = "";
+		conf_detail = "";
+		conf_key = "";
+		paper_conf = -1;
+		paper_key = -1;
+		conf_name = -1;
+		year = 0;
+	}
+	
+	public void resetPaperDetails(){
+		authors = new ArrayList<Integer>();
+		paper_title = "";
+		conf_detail = "";
+		conf_key = "";
+		paper_key = -1;
+		conf_name = -1;
+		year = 0;
+	}
+	
+	public String toString(){
+		return "title: " + paper_title + " authors: " + authors.toString() +
+				" conference: " + conf_name + " year: " + year + " key: " + paper_key;
+	}
+	
+	public static int getElement(String rawName) {
+		if (rawName.equals("inproceedings")) {
+			return INPROCEEDING;
+		} else if (rawName.equals("proceedings")) {
+			return PROCEEDING;
+		} else if (rawName.equals("booktitle")) {
+			return CONFNAME;
+		} else if (rawName.equals("author")) {
+			return AUTHOR;
+		}  else if (rawName.equals("title") || rawName.equals("sub") || rawName.equals("sup") || rawName.equals("i")
+				|| rawName.equals("tt")) {
+			return TITLE;
+		} else if (rawName.equals("year")) {
+			return YEAR;
+		} else {
+			return OTHER;
+		}
+	}
+	
+	
+}
+
+
+package parser;
+
+import java.sql.SQLException;
+import java.util.ArrayList;
+
+import org.xml.sax.*;
+import org.xml.sax.helpers.*;
+
+import database.*;
+
+public class XMLHandler extends DefaultHandler {
+
+	public static ArrayList<String> Conferences;
+	public static ArrayList<String> Authors;
+	public static ArrayList<String> Papers;
+
+	private XMLElements xml;
+	
+	private int curElement = -1;
+	private int ancestor = -1;
+	private int id = 0;
+	private int line = 0;
+	private int authorid = -1;
+	public int errors = 0;
+
+	public XMLHandler() {
+		Conferences = new ArrayList<String>();
+		Authors = new ArrayList<String>();
+		Papers = new ArrayList<String>();
+		xml = new XMLElements();
+	}
+
+	public void startElement(String namespaceURI, String localName, String rawName, Attributes attrs)
+			throws SAXException {
+
+		if (rawName.equals("inproceedings")) {
+			ancestor = XMLElements.INPROCEEDING;
+			id = SetAndGetID(attrs.getValue("key"), Papers);
+			xml = new XMLElements();
+			xml.paper_key = id;
+			curElement = XMLElements.INPROCEEDING;
+		} else if (rawName.equals("proceedings")) {
+			ancestor = XMLElements.PROCEEDING;
+			curElement = XMLElements.PROCEEDING;
+			xml = new XMLElements();
+			xml.conf_key = attrs.getValue("key");
+		}
+
+		if (ancestor == XMLElements.INPROCEEDING) {
+			curElement = XMLElements.getElement(rawName);
+		} else if (ancestor == XMLElements.PROCEEDING) {
+			curElement = XMLElements.getElement(rawName);
+		} else if (ancestor == -1) {
+			curElement = XMLElements.OTHER;
+			ancestor = XMLElements.OTHER;
+		} else {
+			curElement = XMLElements.OTHER;
+		}
+		line++;
+	}
+
+	public void characters(char[] ch, int start, int length) {
+		String xmlStr = new String(ch, start, length).trim();
+		if (ancestor == XMLElements.INPROCEEDING) {
+			if (curElement == XMLElements.AUTHOR) {
+				id = SetAndGetID(xmlStr, Authors);
+				authorid = id;
+			} else if (curElement == XMLElements.CONFNAME) {
+				id = SetAndGetID(xmlStr, Conferences);
+				xml.conf_name = id;
+				xml.paper_conf = id;
+			} else if (curElement == XMLElements.TITLE) {
+				xml.paper_title = xmlStr;
+			} else if (curElement == XMLElements.YEAR) {
+				xml.year = Integer.parseInt(xmlStr);
+			}
+		} else if (ancestor == XMLElements.PROCEEDING) {
+			if (curElement == XMLElements.CONFNAME) {
+				id = SetAndGetID(xmlStr, Conferences);
+				xml.conf_name = id;
+			} else if (curElement == XMLElements.CONFDETAIL) {
+				xml.conf_detail = xmlStr;
+			}
+		}
+	}
+
+	public void endElement(String namespaceURI, String localName, String rawName) {
+		if (rawName.equals("author") && ancestor == XMLElements.INPROCEEDING) {
+			xml.authors.add(authorid);
+		}
+
+		if (XMLElements.getElement(rawName) == XMLElements.INPROCEEDING) {
+			ancestor = -1;
+			try {
+				if (xml.paper_title.equals("") || xml.paper_conf == -1 || xml.year == 0) {
+					errors++;
+					System.out.println("Error in parsing " + xml.paper_title);
+					return;
+				}
+				PrepStmts.SetInproceedings(xml);
+			} catch (SQLException e) {
+				e.printStackTrace();
+				System.out.println("Line : " + line);
+			}
+
+		} else if (XMLElements.getElement(rawName) == XMLElements.PROCEEDING) {
+			ancestor = -1;
+			try {
+				if (xml.conf_name == -1) {
+					id = SetAndGetID(xml.conf_detail, Conferences);
+					xml.conf_name = id;
+				}
+				if (xml.conf_key.equals("") || xml.conf_name == -1 || xml.conf_detail.equals("")) {
+					System.out.println("Line:" + line);
+					System.exit(0);
+				}
+				PrepStmts.SetProceedings(xml);
+			} catch (SQLException e) {
+				System.out.println("line:" + line);
+				e.printStackTrace();
+				System.exit(0);
+			}
+		}
+
+		if (line % 10000 == 0) {
+			try {
+				PrepStmts.statement_inproc.executeBatch();
+				PrepStmts.statement_conf.executeBatch();
+				PrepStmts.statement_author.executeBatch();
+				System.out.print(". ");
+				
+				if (line > 20000000) {
+					PrepStmts.ExecuteStatementsofLists();
+					System.exit(0);
+				}
+				PrepStmts.conn.commit();
+			} catch (SQLException e) {
+				System.err.println(e.getMessage());
+			}
+		}
+	}
+
+	public int SetAndGetID(String str, ArrayList<String> list) {
+		if (!list.contains(str)) {
+			list.add(str);
+		}
+		return list.indexOf(str);
+	}
+}
+
+package recommender;
+
+import database.*;
+import parser.*;
+import java.sql.*;
+
+public class Main {
+	public static String filePath;
+	public static PrepStmts stmts;
+
+	public static void main(String[] args) {
+		filePath = args[0];
+		try {
+			Connection conn = DBLPConnection.getConn("jdbc:mysql://127.0.0.1:3306/dblp3", "root", "root");
+			stmts = new PrepStmts(conn);
+			XMLHandler handler = new XMLHandler();
+			Parser parser = new Parser();
+			conn.setAutoCommit(false);
+			parser.parseXML(handler);
+			System.out.println("Done saving processed data to DataBase!");
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+
+	}
+
+}
+
+
+package com.recommender.dblp.controller;
+
+import com.recommender.dblp.Repository.DatabaseRepository;
+import com.recommender.dblp.util.RecommenderUtil;
+import org.apache.log4j.Logger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+
+import javax.servlet.http.HttpServletRequest;
+
+import static org.springframework.util.MimeTypeUtils.APPLICATION_JSON_VALUE;
+import static org.springframework.web.bind.annotation.RequestMethod.*;
+
+/**
+ * Created by pavan on 3/17/17.
+ */
+@CrossOrigin
+@RestController
+@RequestMapping("/recommend")
+public class RecommenderController {
+
+    private final static Logger logger = Logger.getLogger(RecommenderController.class);
+
+    @Autowired
+    private DatabaseRepository databaseRepository;
+
+
+    @RequestMapping(value = "/conferenceByAuthorName", method = GET, produces = APPLICATION_JSON_VALUE)
+    public ResponseEntity conferenceByAuthorName(HttpServletRequest request, @RequestParam(name = "authorName") String authorName) throws Exception{
+        String authorsList = RecommenderUtil.getCoAuthors(authorName, 3, databaseRepository);
+        return ResponseEntity.ok(RecommenderUtil.getConferences(3, authorsList,databaseRepository));
+    }
+
+    @RequestMapping(value = "/conferenceByConferenceName", method = GET, produces = APPLICATION_JSON_VALUE)
+    public ResponseEntity conferenceByConferenceName(HttpServletRequest request, @RequestParam(name = "authorName") String authorName) throws Exception{
+        RecommenderUtil.getAuthorConferences(authorName, databaseRepository);
+        return ResponseEntity.ok(RecommenderUtil.printConferences(3));
+    }
+
+    @RequestMapping(value = "/conferenceByPublication", method = GET, produces = APPLICATION_JSON_VALUE)
+    public ResponseEntity conferenceByPublication(HttpServletRequest request, @RequestParam(name = "authorName") String authorName) throws Exception{
+        RecommenderUtil.getAuthorConferencesByPaper(authorName, databaseRepository);
+        return ResponseEntity.ok(RecommenderUtil.printConferences(3));
+    }
+}
+
+
+package com.recommender.dblp.Repository;
+
+/**
+ * Created by admin on 22/10/16.
+ */
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Component;
+
+import javax.persistence.EntityManager;
+import javax.persistence.PersistenceContext;
+import java.util.List;
+import java.util.Map;
+
+@Component
+public class DatabaseRepository {
+
+    @Autowired
+    private JdbcTemplate template;
+
+    @PersistenceContext
+    private EntityManager entityManager;
+
+    public List<Map<String,Object>> getCoAuthors(String authorName){
+        return template.queryForList("select a.name author, b.name coAuthor, count(*) noofpublications from author a inner join author b on a.paper_key = b.paper_key\n" +
+                "inner join author_id ai on a.name=ai.author_name_id where ai.author_name= '" + authorName + "' and a.name <> b.name group by a.name, b.name order by noofpublications desc");
+
+    }
+
+    public List<Map<String,Object>> getConferenceList(String authorList){
+        return template.queryForList("select count(*) noOfPublications, ci.conf_name confName from author a inner join paper p on a.paper_key=p.paper_key " +
+                " inner join conference c on c.name=p.conference inner join conf_id ci on ci.conf_name_id=c.name " +
+                "where a.name in (" + authorList + ") group by ci.conf_name order by noOfPublications desc");
+
+    }
+
+    public List<Map<String,Object>> getConferencePapers(){
+        return template.queryForList("select title from conference c inner join paper p on c.name = p.conference");
+
+    }
+
+    public List<Map<String,Object>> getAuthorPapers(int id){
+        return template.queryForList("select title from author a inner join paper p on a.paper_key = p.paper_key where a.name="+id);
+
+    }
+
+    public Map<String,Object> getAuthorId(String authorName){
+        return template.queryForMap("select author_name_id id from author_id where author_name='"+authorName+"'");
+
+    }
+
+    public List<Map<String,Object>> getConferenceByAuthor(String authorName){
+        return template.queryForList("select distinct(c.detail) conferenceName from author a inner join conference c on a.paper_key = c.name inner join author_id ai on a.name = ai.author_name_id where ai.author_name = '"+authorName+"'");
+
+    }
+
+    public List<Map<String,Object>> getAllConferences(){
+        return template.queryForList("select distinct(conf_name) conferenceName from conf_id");
+    }
+    public List<Map<String,Object>> getAllPapersByConference(int id){
+        return template.queryForList("select title from conference c inner join paper p on c.name = p.conference where name="+id);
+    }
+
+    public List<Map<String,Object>> getAllConferenceId(){
+        return template.queryForList("select conf_name_id id, conf_name name from conf_id");
+    }
+}
+
+package com.recommender.dblp.util;
+
+import com.recommender.dblp.Repository.DatabaseRepository;
+
+import java.util.*;
+
+/**
+ * Created by pavan on 4/29/17.
+ */
+public class RecommenderUtil {
+
+    private static ArrayList<String> distinctWords = new ArrayList<>();
+    private static HashMap<String,Double> conferenceList = new HashMap<>();
+
+    public static String getCoAuthors(String authorName, int k, DatabaseRepository databaseRepository) {
+        String authorList = "";
+        try {
+            List<Map<String,Object>> data = databaseRepository.getCoAuthors(authorName);
+            for(Map<String, Object> singleData : data) {
+                if (k > 0) {
+                    //coAuthorsList.add(rs.getInt("coAuthor"));
+                    authorList += singleData.get("coAuthor") + ",";
+                    k--;
+                }
+            }
+            authorList = authorList.substring(0, authorList.lastIndexOf(","));
+            if (authorList.length() == 0) {
+                throw new Exception("Author not found in the database.");
+            }
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+        return authorList;
+    }
+
+    public static ArrayList<String> getConferences(int k, String authorList, DatabaseRepository databaseRepository) throws Exception{
+        ArrayList<String> conferenceList = new ArrayList<>();
+        try {
+            List<Map<String,Object>> data = databaseRepository.getConferenceList(authorList);
+            for(Map<String, Object> singleData : data) {
+                if (k > 0) {
+                    conferenceList.add((String)singleData.get("confName"));
+                    k--;
+                }
+            }
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+        return conferenceList;
+    }
+
+    private static void getDistance(String conferenceName){
+        conferenceList.clear();
+        ArrayList<String> conferenceWords = new ArrayList<>();
+        int commonCount = 0;
+        int count = 0;
+        for(String words : conferenceName.split(" ")){
+            if(!conferenceWords.contains(words)){
+                conferenceWords.add(words);
+            }
+        }
+
+        for(String words : conferenceName.split("")){
+            if(distinctWords.contains(words)){
+                commonCount++;
+            }
+        }
+        count = distinctWords.size() + conferenceWords.size();
+        double distance = (1.0-((double)commonCount/(double)count));
+        conferenceList.put(conferenceName, distance);
+    }
+
+    public static void getAuthorConferences(String authorName, DatabaseRepository databaseRepository){
+        String conferenceNames = "";
+        distinctWords.clear();
+        try {
+            List<Map<String,Object>> data = databaseRepository.getConferenceByAuthor(authorName);
+            for(Map<String, Object> singleData : data) {
+                conferenceNames += singleData.get("conferenceName");
+            }
+            for(String words : conferenceNames.split("")){
+                if(!distinctWords.contains(words)){
+                    distinctWords.add(words);
+                }
+            }
+
+            List<Map<String,Object>> data1 = databaseRepository.getAllConferences();
+            for(Map<String, Object> singleData : data1) {
+                getDistance((String)singleData.get("conferenceName"));
+            }
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+    }
+
+    private static void getDistanceByPaper(String conferenceName, List<Map<String, Object>> papers){
+        ArrayList<String> conferenceWords = new ArrayList<>();
+        int commonCount = 0;
+        int count = 0;
+        String paperTitle = "";
+        for(Map<String, Object> paper : papers) {
+            paperTitle = (String)paper.get("title");
+            for (String words : paperTitle.split(" ")) {
+                if (!conferenceWords.contains(words)) {
+                    conferenceWords.add(words);
+                }
+            }
+        }
+
+        for(String words : conferenceWords){
+            if(distinctWords.contains(words)){
+                commonCount++;
+            }
+        }
+        count = distinctWords.size() + conferenceWords.size();
+        double distance = (1.0-((double)commonCount/(double)count));
+        conferenceList.put(conferenceName, distance);
+    }
+
+    public static void getAuthorConferencesByPaper(String authorName, DatabaseRepository databaseRepository){
+        distinctWords.clear();
+        conferenceList.clear();
+        String conferenceNames = "";
+        try {
+            Map<String, Object> id = databaseRepository.getAuthorId(authorName);
+            List<Map<String,Object>> data = databaseRepository.getAuthorPapers((int)id.get("id"));
+            for(Map<String, Object> singleData : data) {
+                conferenceNames += singleData.get("title");
+            }
+            for(String words : conferenceNames.split("")){
+                if(!distinctWords.contains(words)){
+                    distinctWords.add(words);
+                }
+            }
+
+            List<Map<String,Object>> data1 = databaseRepository.getAllConferenceId();
+            for(Map<String, Object> singleData : data1) {
+                List<Map<String,Object>> data2 = databaseRepository.getAllPapersByConference((int)singleData.get("id"));
+                getDistanceByPaper((String)singleData.get("name"),data2);
+            }
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+    }
+
+    public static ArrayList<String> printConferences(int k){
+        Map<String, Double> map = sortByValues(conferenceList);
+        Set set2 = map.entrySet();
+        Iterator iterator2 = set2.iterator();
+        ArrayList<String> conferences = new ArrayList<>();
+        while(iterator2.hasNext() && k > 0) {
+            Map.Entry me = (Map.Entry)iterator2.next();
+            conferences.add((String)me.getKey());
+            k--;
+        }
+        return conferences;
+    }
+
+    private static HashMap sortByValues(HashMap map) {
+
+        List list = new LinkedList(map.entrySet());
+        Collections.sort(list, new Comparator() {
+            public int compare(Object o1, Object o2) {
+                return ((Comparable) ((Map.Entry) (o1)).getValue())
+                        .compareTo(((Map.Entry) (o2)).getValue());
+            }
+        });
+
+        HashMap sortedHashMap = new LinkedHashMap();
+        for (Iterator it = list.iterator(); it.hasNext();) {
+            Map.Entry entry = (Map.Entry) it.next();
+            sortedHashMap.put(entry.getKey(), entry.getValue());
+        }
+        return sortedHashMap;
+    }
+}
+
+
+package com.recommender.dblp;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+
+/**
+ * Created by pavan on 4/29/17.
+ */
+@SpringBootApplication
+@EnableTransactionManagement
+public class Application {
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
+}
+
+-- MySQL Workbench Forward Engineering
+
+SET @OLD_UNIQUE_CHECKS=@@UNIQUE_CHECKS, UNIQUE_CHECKS=0;
+SET @OLD_FOREIGN_KEY_CHECKS=@@FOREIGN_KEY_CHECKS, FOREIGN_KEY_CHECKS=0;
+SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='TRADITIONAL,ALLOW_INVALID_DATES';
+
+-- -----------------------------------------------------
+-- Schema mydb
+-- -----------------------------------------------------
+-- -----------------------------------------------------
+-- Schema dblp3
+-- -----------------------------------------------------
+
+-- -----------------------------------------------------
+-- Schema dblp3
+-- -----------------------------------------------------
+CREATE SCHEMA IF NOT EXISTS `dblp3` DEFAULT CHARACTER SET utf8 ;
+USE `dblp3` ;
+
+-- -----------------------------------------------------
+-- Table `dblp3`.`author`
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `dblp3`.`author` (
+  `name` INT(11) NULL DEFAULT NULL,
+  `paper_key` INT(11) NULL DEFAULT NULL)
+ENGINE = InnoDB
+DEFAULT CHARACTER SET = utf8mb4;
+
+
+-- -----------------------------------------------------
+-- Table `dblp3`.`author_id`
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `dblp3`.`author_id` (
+  `author_name_id` INT(11) NOT NULL,
+  `author_name` VARCHAR(200) NULL DEFAULT NULL,
+  PRIMARY KEY (`author_name_id`))
+ENGINE = InnoDB
+DEFAULT CHARACTER SET = utf8;
+
+
+-- -----------------------------------------------------
+-- Table `dblp3`.`citation`
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `dblp3`.`citation` (
+  `paper_cite_key` INT(11) NULL DEFAULT NULL,
+  `paper_cited_key` VARCHAR(200) NULL DEFAULT NULL)
+ENGINE = InnoDB
+DEFAULT CHARACTER SET = utf8mb4;
+
+
+-- -----------------------------------------------------
+-- Table `dblp3`.`conf_id`
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `dblp3`.`conf_id` (
+  `conf_name_id` INT(11) NOT NULL,
+  `conf_name` VARCHAR(500) NULL DEFAULT NULL,
+  PRIMARY KEY (`conf_name_id`))
+ENGINE = InnoDB
+DEFAULT CHARACTER SET = utf8;
+
+
+-- -----------------------------------------------------
+-- Table `dblp3`.`conference`
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `dblp3`.`conference` (
+  `conf_key` VARCHAR(200) NULL DEFAULT NULL,
+  `name` INT(11) NULL DEFAULT NULL,
+  `detail` TEXT NULL DEFAULT NULL)
+ENGINE = InnoDB
+DEFAULT CHARACTER SET = utf8mb4;
+
+
+-- -----------------------------------------------------
+-- Table `dblp3`.`paper`
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `dblp3`.`paper` (
+  `title` VARCHAR(500) NULL DEFAULT NULL,
+  `year` INT(11) NULL DEFAULT '0',
+  `conference` INT(11) NULL DEFAULT NULL,
+  `paper_key` INT(11) NULL DEFAULT NULL)
+ENGINE = InnoDB
+DEFAULT CHARACTER SET = utf8mb4;
+
+
+-- -----------------------------------------------------
+-- Table `dblp3`.`paper_id`
+-- -----------------------------------------------------
+CREATE TABLE IF NOT EXISTS `dblp3`.`paper_id` (
+  `paper_key_id` INT(11) NOT NULL,
+  `paper_key` VARCHAR(300) NULL DEFAULT NULL,
+  PRIMARY KEY (`paper_key_id`))
+ENGINE = InnoDB
+DEFAULT CHARACTER SET = utf8;
+
+
+SET SQL_MODE=@OLD_SQL_MODE;
+SET FOREIGN_KEY_CHECKS=@OLD_FOREIGN_KEY_CHECKS;
+SET UNIQUE_CHECKS=@OLD_UNIQUE_CHECKS;
+
+
+<!DOCTYPE html>
+<html>
+<style>
+h2 {
+    text-align: center;
+}
+
+
+
+</style>
+
+<body background="dblpimage2.jpeg"> 
+
+<h2> DBLP Recommender System</h2><br/><br/>
+<center>Please enter your name: <input type="text" id="authorName"/><br/><br/>
+<input type="button" value="Recommend conferences based on co-authors " onclick="getConferenceBasedOnCoAuthor()"/>
+<input type="button" value="Recommend conferences based on similar Conferences" onclick="getConferenceBasedOnSimilarity()" />
+<input type="button" value="Recommend conferences based on your publications" onclick="getConferenceBasedOnPublications()" />
+<br/><br/>
+<h3 id="head"></h3>
+<div id="conf">Your Recommendations will be listed here</div></center>
+
+<script src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript"></script>
+<script type="text/javascript">
+function getConferenceBasedOnCoAuthor() 
+{
+    var authorName = $("#authorName").val();
+    var data = '';
+    $('#conf').text("Getting your recommendations....");
+    $.ajax({
+          url : 'http://localhost:7070/recommend/conferenceByAuthorName?authorName='+authorName, 
+          type : 'GET',
+          success : function(response) {
+          for(var i=0;i<response.length;i++){
+            data += response[i]+"\n";
+          }
+          $('#head').text("Recommendations based on Co Authors");
+          console.log(data);
+          var obj = $('#conf').text(data);
+          obj.html(obj.html().replace(/\n/g,'<br/>'));
+        },
+        error : function(request, textStatus, errorThrown) {
+            alert("Author not found!");
+        }
+      });
+}
+
+function getConferenceBasedOnSimilarity() 
+{
+    var authorName = $("#authorName").val();
+    var data = '';
+    $('#conf').text("Getting your recommendations....");
+    $.ajax({
+          url : 'http://localhost:7070/recommend/conferenceByConferenceName?authorName='+authorName, 
+          type : 'GET',
+          success : function(response) {
+            for(var i=0;i<response.length;i++){
+              data += response[i]+"\n";
+            }
+            $('#head').text("Recommendations based on your Similar Conferences");
+            var obj = $('#conf').text(data); 
+            obj.html(obj.html().replace(/\n/g,'<br/>'));
+          },
+          error : function(request, textStatus, errorThrown) {
+              alert("Author not found!");
+          }
+      });
+}
+function getConferenceBasedOnPublications() 
+{
+    var authorName = $("#authorName").val();
+    var data = '';
+    $('#conf').text("Getting your recommendations....");
+    $.ajax({
+          url : 'http://localhost:7070/recommend/conferenceByPublication?authorName='+authorName, 
+          type : 'GET',
+          success : function(response) {
+            for(var i=0;i<response.length;i++){
+              data += response[i]+"\n";
+            }
+            $('#head').text("Recommendations based on your Publications");
+            var obj = $('#conf').text(data); 
+            obj.html(obj.html().replace(/\n/g,'<br/>'));
+          },
+          error : function(request, textStatus, errorThrown) {
+              alert("Author not found!");
+          }
+      });
+}
+</script>
+
+</body>
+</html>
